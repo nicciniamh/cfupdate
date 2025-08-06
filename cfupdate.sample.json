@@ -1,0 +1,22 @@
+{
+  "api_token": "cloudflare-api-key",
+  "zones": {
+    "domain.com": {
+      "zoneid": "cloudflare-zone-id-domain.com",
+      "records": {
+        "@": {"type": "A", "ttl": 60, "proxied": false},
+        "www": {"type": "A", "ttl": 60, "proxied": true},
+        "dfrb": {"type": "A", "ttl": 60, "proxied": false}
+      }
+    },
+    "domain.org": {
+      "zoneid": "cloudflare-zone-id-domain.org",
+      "records": {
+        "@": {"type": "A", "ttl": 60,"proxied": false},
+        "www": {"type": "A", "ttl": 60,"proxied": true},
+        "dfrb": {"type": "A", "ttl": 60,"proxied": false},
+        "mx": {"type": "A", "ttl": 60,"proxied": false}
+      }
+    }
+  }
+}

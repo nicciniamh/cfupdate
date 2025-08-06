@@ -1,0 +1,175 @@
+#!/usr/bin/env python3
+import os
+import sys
+import requests
+import logging
+import json
+import argparse
+
+# --- Configuration & Logging Setup ---
+API_ENDPOINT = "https://api.cloudflare.com/client/v4"
+
+# Set up a global logger for use in functions.
+# The `if __name__ == "__main__"` block will reconfigure it.
+log = logging.getLogger(os.path.basename(sys.argv[0]))
+
+def load_config(config_file_path):
+    """Loads configuration from a JSON file."""
+    try:
+        with open(os.path.expanduser(config_file_path), 'r') as f:
+            config = json.load(f)
+        return config
+    except FileNotFoundError:
+        log.error(f"Configuration file '{config_file_path}' not found.")
+        return None
+    except json.JSONDecodeError:
+        log.error(f"Error decoding JSON from '{config_file_path}'. Please check file syntax.")
+        return None
+
+def get_public_ip():
+    """Gets the public IP address from ipify."""
+    try:
+        response = requests.get("https://api.ipify.org", timeout=5)
+        ip = response.text.strip()
+        return ip
+    except requests.RequestException as e:
+        log.error(f"Failed to retrieve IP address: {e}")
+    return None
+
+def get_dns_record(headers, zone_id, record_name, record_type):
+    """Finds a specific DNS record within a zone using raw requests."""
+    try:
+        url = f"{API_ENDPOINT}/zones/{zone_id}/dns_records"
+        params = {"name": record_name, "type": record_type}
+        
+        response = requests.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        data = response.json()
+        if data and data.get("result"):
+            return data["result"][0]
+    except requests.exceptions.RequestException as e:
+        log.error(f"Cloudflare API Error finding record for {record_name}: {e}")
+    return None
+
+def main(args):
+    log.info("Starting Cloudflare DDNS update.")
+
+    # Use the config file from args, or fall back to a default.
+    config_file = args.config if args.config else "/home/nicci/etc/cfupdate.json"
+    config = load_config(config_file)
+
+    if not config:
+        log.error("Aborting DDNS update due to configuration error.")
+        return
+
+    cf_api_token = config.get("api_token")
+    zones_config = config.get("zones")
+    
+    if not cf_api_token or not zones_config:
+        log.error("Missing 'api_token' or 'zones' in config.json. Aborting.")
+        return
+        
+    headers = {
+        "Authorization": f"Bearer {cf_api_token}",
+        "Content-Type": "application/json",
+    }
+
+    # Get the current public IP
+    public_ip = get_public_ip()
+    if not public_ip:
+        log.error("Aborting DDNS update.")
+        return
+    log.info(f"Detected public IP: {public_ip}")
+
+    # Process each zone from the config
+    for domain, zone_data in zones_config.items():
+        zone_id = zone_data.get("zoneid")
+        records_config = zone_data.get("records")
+
+        if not zone_id or not records_config:
+            log.error(f"Skipping zone '{domain}': missing 'zoneid' or 'records' in config.")
+            continue
+        
+        # Process each record within the current zone
+        for record_name, record_details in records_config.items():
+            
+            # Construct the full record name
+            full_record_name = f"{record_name}.{domain}" if record_name != '@' else domain
+
+            record_type = record_details.get("type", "A")
+            record_ttl = record_details.get("ttl", 60)
+            record_proxied = record_details.get("proxied", False)
+            
+            log.info(f"Processing record: {full_record_name} with Zone ID: {zone_id}")
+
+            dns_record = get_dns_record(headers, zone_id, full_record_name, record_type)
+
+            if not dns_record:
+                # Record does not exist, create it
+                try:
+                    log.info(f"Record {full_record_name} not found. Creating...")
+                    url = f"{API_ENDPOINT}/zones/{zone_id}/dns_records"
+                    data = {
+                        "type": record_type,
+                        "name": full_record_name,
+                        "content": public_ip,
+                        "ttl": record_ttl,
+                        "proxied": record_proxied
+                    }
+                    response = requests.post(url, headers=headers, json=data)
+                    response.raise_for_status()
+                    log.info(f"SUCCESS: Created record {full_record_name} with IP {public_ip}")
+                except requests.exceptions.RequestException as e:
+                    log.error(f"ERROR: Failed to create record {full_record_name}: {e}")
+            else:
+                # Record exists, check if update is needed
+                if dns_record.get("content") == public_ip:
+                    log.info(f"No update needed for {full_record_name} (IP: {public_ip})")
+                else:
+                    try:
+                        log.info(f"Updating {full_record_name}: current IP is {dns_record.get('content')}, new IP is {public_ip}")
+                        url = f"{API_ENDPOINT}/zones/{zone_id}/dns_records/{dns_record.get('id')}"
+                        data = {
+                            "type": record_type,
+                            "name": full_record_name,
+                            "content": public_ip,
+                            "ttl": record_ttl,
+                            "proxied": record_proxied
+                        }
+                        response = requests.patch(url, headers=headers, json=data)
+                        response.raise_for_status()
+                        log.info(f"SUCCESS: Updated record {full_record_name} to IP {public_ip}")
+                    except requests.exceptions.RequestException as e:
+                        log.error(f"ERROR: Failed to update record {full_record_name}: {e}")
+    
+    log.info("DDNS update complete.")
+
+if __name__ == "__main__":
+    log_levels = {
+        'debug': logging.DEBUG,
+        'info': logging.INFO,
+        'warn': logging.WARN,
+        'error': logging.ERROR,
+        'fatal': logging.FATAL
+    }
+    parser = argparse.ArgumentParser("cfupdate",description="Update Cloudflare DNS")
+    parser.add_argument('-c','--config',default=None,type=str,help="config file",metavar="file")
+    parser.add_argument('-l','--log-file',default=None,type=str,help="log file",metavar="file")
+    parser.add_argument('-v','--log-level',default='info', choices=['debug','info','warn','error','fatal'],help="log level")
+    args = parser.parse_args()
+    
+    logging_config = {
+        'level': log_levels[args.log_level],
+        'format': '%(asctime)s - %(levelname)s - %(message)s' # For logging to file 
+    }
+    
+    if args.log_file:
+        logging_config['filename'] = args.log_file
+    else:
+        logging_config['format'] = '%(levelname)s - %(message)s' # For logging stdout
+
+    logging.basicConfig(**logging_config)
+    log = logging.getLogger(__name__)
+
+    main(args)
