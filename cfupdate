@@ -56,7 +56,9 @@ def main(args):
     log.info("Starting Cloudflare DDNS update.")
 
     # Use the config file from args, or fall back to a default.
-    config_file = args.config if args.config else "/home/nicci/etc/cfupdate.json"
+    config_file = args.config
+    if not config_file:
+        raise RuntimeError(f"No config file specified")
     config = load_config(config_file)
 
     if not config:
