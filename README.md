@@ -3,7 +3,7 @@
 For persons with a dynamic IP address, usually as a residential broadband customer, this tool will allow 
 for updating dynamic DNS on Cloudflare to assist with that. 
 
-*Note: Residential Internet Service Providers may have terms of service that do not allow for running services over the IP address they give you.*
+*Note: Residential Internet Service Providers often have terms of service that do not allow for running services over the IP address they give you. Please check with your ISP to ensure you do not violate these terms (and possibly lose access)*
 
 This tool is meant to be run systemd or cron(8). Included are two systemd files, a timer and a service unit. This allows for better logging and overall control.
 
