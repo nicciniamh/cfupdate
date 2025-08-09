@@ -1,5 +1,5 @@
 # CloudFlare Dynamic VPS Updater
-
+![DucksFeet](ducksfeet-left-100.png "DucksFeet Logo")
 For persons with a dynamic IP address, usually as a residential broadband customer, this tool will allow 
 for updating dynamic DNS on Cloudflare to assist with that. 
 
